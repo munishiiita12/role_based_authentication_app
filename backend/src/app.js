@@ -30,21 +30,49 @@ if (!allowedOrigins.length) {
   allowedOrigins.push('http://localhost:3000');
 }
 
+// Log allowed origins for debugging (remove in production if needed)
+console.log('Allowed CORS origins:', allowedOrigins);
+console.log('CLIENT_URL from env:', process.env.CLIENT_URL);
+
 // Configure CORS middleware
 // Allows requests from specified origins and enables credentials (cookies)
 app.use(
   cors({
     origin(origin, callback) {
-      // Allow requests with no origin (e.g., mobile apps) or from allowed origins
-      if (!origin || allowedOrigins.includes(origin)) {
+      // Allow requests with no origin (e.g., mobile apps, Postman, or same-origin requests)
+      if (!origin) {
+        return callback(null, true);
+      }
+      
+      // Check if origin is in allowed list
+      if (allowedOrigins.includes(origin)) {
+        console.log(`CORS: Allowing request from origin: ${origin}`);
         callback(null, true);
       } else {
-        callback(new Error('Not allowed by CORS'));
+        // Log the blocked origin for debugging
+        console.error(`CORS blocked request from origin: ${origin}`);
+        console.error(`Allowed origins: ${allowedOrigins.join(', ')}`);
+        callback(new Error(`Not allowed by CORS. Origin: ${origin} not in allowed list.`));
       }
     },
     credentials: true, // Allow cookies to be sent with requests
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Requested-With',
+      'Accept',
+      'Origin',
+      'Access-Control-Request-Method',
+      'Access-Control-Request-Headers',
+    ],
+    exposedHeaders: ['Set-Cookie'],
+    maxAge: 86400, // 24 hours
   })
 );
+
+// Handle preflight OPTIONS requests explicitly
+app.options('*', cors());
 
 // Parse JSON request bodies
 app.use(express.json());
@@ -65,8 +93,17 @@ app.use('/api/items', authMiddleware, itemRoutes);
 
 // Global error handler middleware
 // Catches all errors and sends appropriate error responses
-app.use((err, _req, res, _next) => {
-  console.error(err);
+app.use((err, req, res, next) => {
+  console.error('Error:', err);
+  
+  // Handle CORS errors specifically
+  if (err.message && err.message.includes('CORS')) {
+    return res.status(403).json({
+      message: err.message,
+      error: 'CORS_ERROR',
+    });
+  }
+  
   const statusCode = err.statusCode || 500;
   res.status(statusCode).json({
     message: err.message || 'Internal server error',
